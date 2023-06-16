@@ -364,7 +364,8 @@ def manage_custom_packages(group: NodeGroup):
         cluster.log.verbose('Exception occurred! Trying to handle is there anything updated or not...')
         # todo develop cases when we can continue even if exception occurs
         raise
-
+    print("!!!!!!!")
+    print(batch_results)
     any_changes_found = False
     for action, results in batch_results.items():
         cluster.log.verbose('Verifying packages changes after \'%s\' action...' % action)

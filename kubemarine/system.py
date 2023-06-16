@@ -453,6 +453,10 @@ def configure_timesyncd(group, retries=120):
     while retries > 0:
         log.debug("Waiting for time sync, retries left: %s" % retries)
         results = group.sudo('timedatectl timesync-status && sudo timedatectl status')
+        if group.cluster.context.get("dry_run"):
+            log.debug("Time synced!")
+            return results
+
         if results.stdout_contains("synchronized: yes"):
             log.verbose("NTP service reported successful time synchronization, validating...")
 

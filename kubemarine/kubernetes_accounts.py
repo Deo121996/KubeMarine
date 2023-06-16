@@ -101,7 +101,10 @@ def install(cluster: KubernetesCluster):
         # Token creation in Kubernetes 1.24 is not syncronus, therefore retries are necessary
         while retries > 0:
             result = cluster.nodes['control-plane'].get_first_member().sudo(load_tokens_cmd)
-            token = list(result.values())[0].stdout
+            if cluster.context.get("dry_run"):
+                token = "dry-run"
+            else:
+                token = list(result.values())[0].stdout
             if not token:
                 retries -= 1
             else:

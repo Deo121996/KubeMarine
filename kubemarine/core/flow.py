@@ -182,11 +182,11 @@ def run_tasks(resources: res.DynamicResources, tasks, cumulative_points=None, ta
         print("\tNo excluded tasks")
 
     cluster = resources.cluster()
-
-    if args.get('without_act', False):
+    dry_run = args.get('without_act', False)
+    if dry_run:
+        cluster.context["dry_run"] = dry_run
         resources.context['preserve_inventory'] = False
         cluster.log.debug('\nFurther acting manually disabled')
-        return
 
     init_tasks_flow(cluster)
     run_tasks_recursive(tasks, final_list, cluster, cumulative_points, [])
@@ -439,6 +439,8 @@ def proceed_cumulative_point(cluster: c.KubernetesCluster, points_list: dict,
     scheduled_methods = cluster.context.get('scheduled_cumulative_points', [])
 
     results = {}
+    print("@@@@@@@@@@")
+    print(points_list)
     for point_method, points_tasks_names in points_list.items():
         if point_task_name in points_tasks_names:
 

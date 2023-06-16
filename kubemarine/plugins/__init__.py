@@ -227,7 +227,9 @@ def expect_daemonset(cluster: KubernetesCluster,
     log.verbose("Max expectation time: %ss" % (timeout * retries))
 
     log.debug("Waiting for DaemonSets...")
-
+    if cluster.context.get("dry_run"):
+        cluster.log.debug("DaemonSets are up to date")
+        return
     daemonsets = []
     for name in daemonsets_names:
         if isinstance(name, str):
@@ -383,6 +385,9 @@ def expect_deployment(cluster: KubernetesCluster,
     log.verbose("Max expectation time: %ss" % (timeout * retries))
 
     log.debug("Waiting for Deployments...")
+    if cluster.context.get("dry_run"):
+        cluster.log.debug("Deployments are up to date")
+        return
 
     deployments = []
     for name in deployments_names:
@@ -437,6 +442,10 @@ def expect_pods(cluster, pods, namespace=None, timeout=None, retries=None,
     command = f"kubectl get pods {namespace_filter} -o=wide"
     if apply_filter is not None:
         command += ' | grep %s' % apply_filter
+
+    if cluster.context.get("dry_run"):
+        cluster.log.debug("Pods are ready!")
+        return
 
     while retries > 0:
 

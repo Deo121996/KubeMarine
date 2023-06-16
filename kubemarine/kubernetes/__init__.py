@@ -475,8 +475,10 @@ def fetch_admin_config(cluster: KubernetesCluster) -> str:
 
     first_control_plane = cluster.nodes['control-plane'].get_first_member(provide_node_configs=True)
     log.debug(f"Downloading kubeconfig from node {first_control_plane['name']!r}...")
-
-    kubeconfig = list(first_control_plane['connection'].sudo('cat /root/.kube/config').values())[0].stdout
+    if cluster.context.get("dry_run"):
+        kubeconfig = cluster.inventory['cluster_name']
+    else:
+        kubeconfig = list(first_control_plane['connection'].sudo('cat /root/.kube/config').values())[0].stdout
 
     # Replace cluster FQDN with ip
     public_cluster_ip = cluster.inventory.get('public_cluster_ip')
@@ -571,26 +573,28 @@ def init_first_control_plane(group):
 
     # Invoke method from admission module for applying default PSS or privileged PSP if they are enabled
     first_control_plane_group.call(admission.apply_admission)
+    if not group.cluster.context.get("dry_run"):
+        # Preparing join_dict to init other nodes
+        control_plane_lines = list(result.values())[0].stdout. \
+                        split("You can now join any number of the control-plane")[1].splitlines()[2:5]
+        worker_lines = list(result.values())[0].stdout. \
+                        split("Then you can join any number of worker")[1].splitlines()[2:4]
+        control_plane_join_command = " ".join([x.replace("\\", "").strip() for x in control_plane_lines])
+        worker_join_command = " ".join([x.replace("\\", "").strip() for x in worker_lines])
 
-    # Preparing join_dict to init other nodes
-    control_plane_lines = list(result.values())[0].stdout. \
-                       split("You can now join any number of the control-plane")[1].splitlines()[2:5]
-    worker_lines = list(result.values())[0].stdout. \
-                       split("Then you can join any number of worker")[1].splitlines()[2:4]
-    control_plane_join_command = " ".join([x.replace("\\", "").strip() for x in control_plane_lines])
-    worker_join_command = " ".join([x.replace("\\", "").strip() for x in worker_lines])
+        # TODO: Get rid of this code and use get_join_dict() method
+        args = control_plane_join_command.split("--")
+        join_dict = {}
+        for arg in args:
+            key_val = arg.split(" ")
+            if len(key_val) > 1:
+                join_dict[key_val[0].strip()] = key_val[1].strip()
+        join_dict["worker_join_command"] = worker_join_command
+        group.cluster.context["join_dict"] = join_dict
 
-    # TODO: Get rid of this code and use get_join_dict() method
-    args = control_plane_join_command.split("--")
-    join_dict = {}
-    for arg in args:
-        key_val = arg.split(" ")
-        if len(key_val) > 1:
-            join_dict[key_val[0].strip()] = key_val[1].strip()
-    join_dict["worker_join_command"] = worker_join_command
-    group.cluster.context["join_dict"] = join_dict
-
-    wait_for_any_pods(group.cluster, first_control_plane_group, apply_filter=first_control_plane['name'])
+        wait_for_any_pods(group.cluster, first_control_plane_group, apply_filter=first_control_plane['name'])
+    else:
+        group.cluster.context["join_dict"] = {}
     # refresh cluster installation status in cluster context
     is_cluster_installed(group.cluster)
 
@@ -670,26 +674,37 @@ def wait_for_nodes(group: NodeGroup):
 
 
 def init_workers(group):
-    join_dict = group.cluster.context.get("join_dict", get_join_dict(group))
-
-    join_config = {
-        'apiVersion': group.cluster.inventory["services"]["kubeadm"]['apiVersion'],
-        'kind': 'JoinConfiguration',
-        'discovery': {
-            'bootstrapToken': {
-                'apiServerEndpoint': group.cluster.inventory["services"]["kubeadm"]['controlPlaneEndpoint'],
-                'token': join_dict['token'],
-                'caCertHashes': [
-                    join_dict['discovery-token-ca-cert-hash']
-                ]
+    if group.cluster.context.get("dry_run"):
+        join_config = {
+            'apiVersion': group.cluster.inventory["services"]["kubeadm"]['apiVersion'],
+            'kind': 'JoinConfiguration',
+            'discovery': {
+                'bootstrapToken': {
+                    'apiServerEndpoint': group.cluster.inventory["services"]["kubeadm"]['controlPlaneEndpoint'],
+                    'token': "dry-run",
+                    'caCertHashes': []
+                }
             }
         }
-    }
+    else:
+        join_dict = group.cluster.context.get("join_dict", get_join_dict(group))
+        join_config = {
+            'apiVersion': group.cluster.inventory["services"]["kubeadm"]['apiVersion'],
+            'kind': 'JoinConfiguration',
+            'discovery': {
+                'bootstrapToken': {
+                    'apiServerEndpoint': group.cluster.inventory["services"]["kubeadm"]['controlPlaneEndpoint'],
+                    'token': join_dict['token'],
+                    'caCertHashes': [
+                        join_dict['discovery-token-ca-cert-hash']
+                    ]
+                }
+            }
+        }
 
     # TODO: when k8s v1.21 is excluded from Kubemarine, patches should be added to InitConfiguration unconditionally
     if "v1.21" not in group.cluster.inventory["services"]["kubeadm"]["kubernetesVersion"]:
         join_config['patches'] = {'directory': '/etc/kubernetes/patches'}
-
 
     if group.cluster.inventory['services']['kubeadm']['controllerManager']['extraArgs'].get(
             'external-cloud-volume-plugin'):
@@ -768,6 +783,9 @@ def is_cluster_installed(cluster):
     cluster.log.verbose('Searching for already installed cluster...')
     try:
         result = cluster.nodes['control-plane'].sudo('kubectl cluster-info', warn=True, timeout=15)
+        if cluster.context.get("dry_run"):
+            cluster.context['controlplain_uri'] = "dry-run"
+            return True
         for conn, result in result.items():
             if 'is running at' in result.stdout:
                 cluster.log.verbose('Detected running Kubernetes cluster on %s' % conn.host)

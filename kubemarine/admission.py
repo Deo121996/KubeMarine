@@ -727,34 +727,39 @@ def update_kubeadm_configmap_pss(first_control_plane, target_state):
 
     # load kubeadm config map and retrieve cluster config
     result = first_control_plane.sudo("kubectl get cm kubeadm-config -n kube-system -o yaml")
-    kubeadm_cm = yaml.load(list(result.values())[0].stdout)
-    cluster_config = yaml.load(kubeadm_cm["data"]["ClusterConfiguration"])
-    
-    # update kubeadm config map with feature list
-    if target_state == "enabled":
-        if "feature-gates" in cluster_config["apiServer"]["extraArgs"]:
-            enabled_admissions = cluster_config["apiServer"]["extraArgs"]["feature-gates"]
-            if 'PodSecurity=true' not in enabled_admissions:
-                enabled_admissions = "%s,PodSecurity=true" % enabled_admissions
-                cluster_config["apiServer"]["extraArgs"]["feature-gates"] = enabled_admissions
-                cluster_config["apiServer"]["extraArgs"]["admission-control-config-file"] = admission_path
-                final_feature_list = enabled_admissions
+
+    if first_control_plane.cluster.context.get("dry_run"):
+        kubeadm_cm = {"data": {}}
+        cluster_config = ""
+    else:
+        kubeadm_cm = yaml.load(list(result.values())[0].stdout)
+        cluster_config = yaml.load(kubeadm_cm["data"]["ClusterConfiguration"])
+
+        # update kubeadm config map with feature list
+        if target_state == "enabled":
+            if "feature-gates" in cluster_config["apiServer"]["extraArgs"]:
+                enabled_admissions = cluster_config["apiServer"]["extraArgs"]["feature-gates"]
+                if 'PodSecurity=true' not in enabled_admissions:
+                    enabled_admissions = "%s,PodSecurity=true" % enabled_admissions
+                    cluster_config["apiServer"]["extraArgs"]["feature-gates"] = enabled_admissions
+                    cluster_config["apiServer"]["extraArgs"]["admission-control-config-file"] = admission_path
+                    final_feature_list = enabled_admissions
+                else:
+                    cluster_config["apiServer"]["extraArgs"]["admission-control-config-file"] = admission_path
+                    final_feature_list = enabled_admissions
             else:
+                cluster_config["apiServer"]["extraArgs"]["feature-gates"] = "PodSecurity=true"
                 cluster_config["apiServer"]["extraArgs"]["admission-control-config-file"] = admission_path
-                final_feature_list = enabled_admissions
-        else:
-            cluster_config["apiServer"]["extraArgs"]["feature-gates"] = "PodSecurity=true"
-            cluster_config["apiServer"]["extraArgs"]["admission-control-config-file"] = admission_path
-            final_feature_list = "PodSecurity=true"
-    elif target_state == "disabled":
-        feature_list = cluster_config["apiServer"]["extraArgs"]["feature-gates"].replace("PodSecurity=true", "")
-        final_feature_list = feature_list.replace(",,", ",")
-        if len(final_feature_list) == 0:
-            del cluster_config["apiServer"]["extraArgs"]["feature-gates"]
-            del cluster_config["apiServer"]["extraArgs"]["admission-control-config-file"]
-        else:
-            cluster_config["apiServer"]["extraArgs"]["feature-gates"] = final_feature_list
-            del cluster_config["apiServer"]["extraArgs"]["admission-control-config-file"]
+                final_feature_list = "PodSecurity=true"
+        elif target_state == "disabled":
+            feature_list = cluster_config["apiServer"]["extraArgs"]["feature-gates"].replace("PodSecurity=true", "")
+            final_feature_list = feature_list.replace(",,", ",")
+            if len(final_feature_list) == 0:
+                del cluster_config["apiServer"]["extraArgs"]["feature-gates"]
+                del cluster_config["apiServer"]["extraArgs"]["admission-control-config-file"]
+            else:
+                cluster_config["apiServer"]["extraArgs"]["feature-gates"] = final_feature_list
+                del cluster_config["apiServer"]["extraArgs"]["admission-control-config-file"]
 
     buf = io.StringIO()
     yaml.dump(cluster_config, buf)

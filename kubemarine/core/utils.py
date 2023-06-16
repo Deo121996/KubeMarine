@@ -237,7 +237,10 @@ def wait_command_successful(group, command, retries=15, timeout=5, warn=True, hi
     while retries > 0:
         log.debug("Waiting for command to succeed, %s retries left" % retries)
         result = group.sudo(command, warn=warn, hide=hide, is_async=is_async)
-        exit_code = list(result.values())[0].exited
+        if group.cluster.context.get("dry_run"):
+            exit_code = 0
+        else:
+            exit_code = list(result.values())[0].exited
         if exit_code == 0:
             log.debug("Command succeeded")
             return

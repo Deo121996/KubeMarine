@@ -29,6 +29,9 @@ def check_job_for_nginx(cluster: KubernetesCluster):
     minor_version = int(version[2])
 
     check_jobs = first_control_plane['connection'].sudo(f"kubectl get jobs -n ingress-nginx")
+    if cluster.context.get("dry_run"):
+        cluster.log.debug('There are no jobs to delete')
+        return
     if list(check_jobs.values())[0].stderr == "" and major_version >= 1 and minor_version >= 4:
         cluster.log.debug('Delete old jobs for nginx')
         first_control_plane['connection'].sudo(f"sudo kubectl delete job --all -n ingress-nginx", is_async=False)

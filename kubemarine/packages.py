@@ -317,9 +317,9 @@ def cache_package_versions(cluster: KubernetesCluster, inventory: dict, by_initi
 
     hosts_to_packages = get_all_managed_packages_for_group(group, inventory, by_initial_nodes)
     detected_packages = detect_installed_packages_version_hosts(cluster, hosts_to_packages)
-
-    _cache_package_associations(group, inventory, detected_packages, by_initial_nodes)
-    _cache_custom_packages(cluster, inventory, detected_packages, by_initial_nodes)
+    if not cluster.context.get("dry_run"):
+        _cache_package_associations(group, inventory, detected_packages, by_initial_nodes)
+        _cache_custom_packages(cluster, inventory, detected_packages, by_initial_nodes)
 
     cluster.log.debug('Package versions detection finished')
     return inventory
